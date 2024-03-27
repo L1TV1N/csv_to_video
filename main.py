@@ -1,34 +1,88 @@
+import os
+import wave
 import pandas as pd
-from moviepy.editor import VideoFileClip, AudioFileClip
+from datetime import datetime
+from pydub import AudioSegment
 
-# Функция для вставки аудио в видео
-def insert_audio(video_file, audio_file, start_time, end_time, output_file):
-    video = VideoFileClip(video_file)
-    audio = AudioFileClip(audio_file)
+# Функция для получения длительности аудиофайла WAV
+def get_audio_duration(file_name):
+    with wave.open(file_name, 'r') as wf:
+        frames = wf.getnframes()
+        rate = wf.getframerate()
+        duration = frames / float(rate)
+    return duration
 
-    # Обрезаем аудио по временным границам
-    audio = audio.subclip(start_time, end_time)
+# Функция для парсинга времени в формате час:минуты:секунды.миллисекунды
+def parse_time(time_str):
+    if len(time_str) > 8:
+        format_str = '%H:%M:%S.%f'
+    else:
+        format_str = '%H:%M:%S'
+    time_obj = datetime.strptime(time_str, format_str)
+    return time_obj
 
-    # Вставляем аудио в видео
-    video = video.set_audio(audio)
+# Функция для форматирования времени с миллисекундами
+def format_timedelta_with_milliseconds(time_delta):
+    seconds = time_delta.total_seconds()
+    milliseconds = int((seconds - int(seconds)) * 1000)
+    formatted_time = str(time_delta).split('.')[0] + f'.{milliseconds:03}'
+    return formatted_time
 
-    # Сохраняем видео с вставленным аудио
-    video.write_videofile(output_file, codec='libx264', audio_codec='aac')
+# Функция для расчета темпа аудио
+def calculate_audio_tempo(audio_duration, time_difference):
+    tempo = (audio_duration / time_difference.total_seconds()) * 60
+    return tempo
 
-# видеофайл
-video_file_name = 'goblin.mp4'
+# Функция для корректировки скорости аудио
+def adjust_audio_speed(input_audio_path, speed_factor):
+    audio = AudioSegment.from_wav(input_audio_path)
+    adjusted_audio = audio.speedup(playback_speed=speed_factor, chunk_size=150)
+    return adjusted_audio
 
-# CSV-файл
-csv_file = 'tex.csv'  # Путь к вашему CSV-файлу
-df = pd.read_csv(csv_file)
+# Создание папки для сохранения откорректированных аудиофайлов, если она не существует
+adjusted_folder = 'adjusted'
+os.makedirs(adjusted_folder, exist_ok=True)
 
-# Перебор строк CSV
+# Чтение файла CSV
+df = pd.read_csv('output (2).csv', delimiter=',')
+
+# Добавление столбца для длительности аудиофайлов
+df['audio_duration'] = df['index'].apply(lambda x: get_audio_duration(f'C:/проекты/csv_to_video/{x}.wav'))
+
+# Преобразование столбцов времени в формат datetime
+df['start'] = df['start'].apply(parse_time)
+df['end'] = df['end'].apply(parse_time)
+
+# Добавление столбца для разницы времени
+df['time_difference'] = df['end'] - df['start']
+
+# Вычисление процентной разницы
+df['percentage_difference'] = ((df['time_difference'].dt.total_seconds() - df['audio_duration']) / df['audio_duration']) * 100
+
+# Вычисление соотношения времени к длительности аудиофайла
+df['time_to_audio_duration_ratio'] = (df['time_difference'].dt.total_seconds() / df['audio_duration']) * 100
+
+# Расчет темпа аудио для каждого файла
+df['audio_tempo'] = df.apply(lambda row: calculate_audio_tempo(row['audio_duration'], row['time_difference']), axis=1)
+
+# Вывод всех полученных данных
+print("Исходные данные из CSV:")
+print(df)
+
+# Вывод результатов вычислений и подгонка аудиофайлов
+print("\nРезультаты вычислений и подгонка аудиофайлов:")
 for index, row in df.iterrows():
-    video_file = video_file_name  # Имя видеофайла с расширением
-    audio_file = row['line'] + '.wav'  # Имя аудиофайла с расширением
-    start_time = row['start']  # Время начала вставки аудио в видео
-    end_time = row['end']  # Время конца вставки аудио в видео
-    output_file = f"output_{index}.mp4"  # Выходное имя файла
+    print(f"Для строки {index+1}:")
+    print(f"Длительность аудиофайла: {row['audio_duration']} секунд")
+    print(f"Разница времени: {format_timedelta_with_milliseconds(row['time_difference'])} секунд")
+    print(f"Процентная разница между длительностью файла и временем: {row['percentage_difference']:.2f} %")
+    print(f"Соотношение времени к длительности аудиофайла: {row['time_to_audio_duration_ratio']:.2f} %")
+    print(f"Темп аудио: {row['audio_tempo']:.2f} BPM")
 
-    # Вставка аудио в видео
-    insert_audio(video_file, audio_file, start_time, end_time, output_file)
+    # Подгонка аудио по темпу и сохранение
+    speed_factor = row['audio_tempo'] / 60
+    adjusted_audio = adjust_audio_speed(f'C:/проекты/csv_to_video/{row["index"]}.wav', speed_factor)
+    adjusted_audio_path = f'{adjusted_folder}/{row["index"]}_adjusted.wav'
+    adjusted_audio.export(adjusted_audio_path, format="wav")
+    print(f"Откорректированное аудио сохранено по пути: {adjusted_audio_path}")
+    print("\n")
