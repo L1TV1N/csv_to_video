@@ -34,13 +34,11 @@ def calculate_audio_tempo(audio_duration, time_difference):
     tempo = (audio_duration / time_difference.total_seconds()) * 60
     return tempo
 
-# Функция для корректировки скорости аудио с использованием метода rubberband
+# Функция для корректировки скорости аудио
 def adjust_audio_speed(input_audio_path, speed_factor):
     audio = AudioSegment.from_wav(input_audio_path)
-    adjusted_audio = audio._spawn(audio.raw_data, overrides={
-        "frame_rate": int(audio.frame_rate * speed_factor)
-    })
-    return adjusted_audio.set_frame_rate(audio.frame_rate)
+    adjusted_audio = audio.speedup(playback_speed=speed_factor, chunk_size=150)
+    return adjusted_audio
 
 # Функция для нормализации аудио
 def normalize_audio(input_audio_path, output_audio_path):
@@ -89,7 +87,8 @@ for index, row in df.iterrows():
     print(f"Темп аудио: {row['audio_tempo']:.2f} BPM")
 
     # Подгонка аудио по темпу и сохранение
-    adjusted_audio = adjust_audio_speed(f'C:/проекты/csv_to_video/{row["index"]}.wav', row['audio_tempo'] )
+    speed_factor = row['audio_tempo'] / 60
+    adjusted_audio = adjust_audio_speed(f'C:/проекты/csv_to_video/{row["index"]}.wav', speed_factor)
     adjusted_audio_path = f'{adjusted_folder}/{row["index"]}_adjusted.wav'
     adjusted_audio.export(adjusted_audio_path, format="wav")
     print(f"Откорректированное аудио сохранено по пути: {adjusted_audio_path}")
@@ -99,4 +98,3 @@ for index, row in df.iterrows():
     normalize_audio(adjusted_audio_path, normalized_audio_path)
     print(f"Нормализованное аудио сохранено по пути: {normalized_audio_path}")
     print("\n")
-
